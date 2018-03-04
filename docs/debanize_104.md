@@ -21,11 +21,16 @@ Use option type *program|library* since dh-make-golang can easily be confused by
 mkdir -p ~/PKGDEB/104
 cd ~/PKGDEB/104
 dh-make-golang -type program github.com/berrak/104
+...
+2018/03/04 14:42:33 Determining dependencies
+2018/03/04 14:42:34 Build-Dependency "github.com/berrak/pkg103greet" is not yet available in Debian, or has not yet been converted to use XS-Go-Import-Path in debian/control
+...
 ```
+Notice that our home made package has to be taken care of during the packaging process.
 Directory (104) and files after above run:
 ```bash
 104
-104_0.0~git20180303.53e3bf5.orig.tar.xz
+104_0.0~git20180304.eaf0f5b.orig.tar.xz
 itp-104.txt
 ```
 Binary application name is not changed by Debian, thus it remains as *104*.
@@ -41,8 +46,9 @@ Switch to pristine-tar branch and confirm have same base name as the original ta
 ```bash
 git sw2 pristine-tar
 ls -l
-104_0.0~git20180303.53e3bf5.orig.tar.xz.delta
-104_0.0~git20180303.53e3bf5.orig.tar.xz.id
+104_0.0~git20180304.eaf0f5b.orig.tar.xz.delta
+104_0.0~git20180304.eaf0f5b.orig.tar.xz.id
+
 
 git sw2 master
 ```
@@ -52,12 +58,21 @@ cd debian
 vi changelog
 ```
 Replace *UNRELEASED* with stable and remove TODO with (Closes: #123456) or whatever.
-Next view the file **control**, but initially it is acceptable for the first packaging attempt.
-Edit **rules** and add DH_GOPKG stanza as below:
+Edit the file **control**. Add the Build dependency to the packaged version of *github.com/berrak/pkg103greet*:
+Add the local debanized package *golang-github-berrak-pkg103greet-dev* like so:
+```bash
+...
+Build-Depends: debhelper (>= 10),
+               dh-golang,
+               golang-any,
+               golang-github-berrak-pkg103greet-dev,
+               golang-github-bgentry-speakeasy-dev
+...
+```
+**rules** does not need the DH_GOPKG stanza anymore, since control has *XS-Go-Import-Path: github.com/berrak/104*.
+Thus, the default file should be ready to run for first fakeroot-tests:
 ```bash
 #!/usr/bin/make -f
-
-export DH_GOPKG := github.com/berrak/104
 
 %:
         dh $@ --buildsystem=golang --with=golang    
@@ -72,26 +87,61 @@ dh build --buildsystem=golang --with=golang
    dh_autoreconf -O--buildsystem=golang
    dh_auto_configure -O--buildsystem=golang
    dh_auto_build -O--buildsystem=golang
-	go install -v -p 1 github.com/berrak/104
-github.com/berrak/104
+	go install -v -p 1 github.com/berrak/104/cmd/104
+src/github.com/berrak/104/cmd/104/104.go:25:2: cannot find package "github.com/bgentry/speakeasy" in any of:
+	/usr/lib/go-1.8/src/github.com/bgentry/speakeasy (from $GOROOT)
+	/home/bekr/PKGDEB/104/104/obj-x86_64-linux-gnu/src/github.com/bgentry/speakeasy (from $GOPATH)
+dh_auto_build: go install -v -p 1 github.com/berrak/104/cmd/104 returned exit code 1
+debian/rules:4: recipe for target 'build' failed
+make: * * * [build] Error 1
+```
+Clearly missing the installation of the last dependency. Let's install it.
+In an previous chapter, *golang-github-berrak-pkg103greet-dev* is already installed. 
+```bash
+sudo apt-get install golang-github-bgentry-speakeasy-dev
+```
+Remove *obj-x86_64-linux-gnu* and rerun fakeroot:
+Let's build again:
+```bash
+fakeroot debian/rules build
+dh build --buildsystem=golang --with=golang
+   dh_testdir -O--buildsystem=golang
+   dh_update_autotools_config -O--buildsystem=golang
+   dh_autoreconf -O--buildsystem=golang
+   dh_auto_configure -O--buildsystem=golang
+   dh_auto_build -O--buildsystem=golang
+	go install -v -p 1 github.com/berrak/104/cmd/104
+github.com/berrak/pkg103greet
+github.com/bgentry/speakeasy
+github.com/berrak/104/cmd/104
    dh_auto_test -O--buildsystem=golang
-	go test -v -p 1 github.com/berrak/104
-=== RUN   TestMain
---- PASS: TestMain (0.00s)
+	go test -v -p 1 github.com/berrak/104/cmd/104
 === RUN   TestOne
 --- PASS: TestOne (0.00s)
-=== RUN   TestTwo
---- PASS: TestTwo (0.00s)
-=== RUN   TestThree
---- PASS: TestThree (0.00s)
 PASS
-ok  	github.com/berrak/104	0.004s
+ok  	github.com/berrak/104/cmd/104	0.001s
    create-stamp debian/debhelper-build-stamp
 ```
-Nice, it looks promising. Try to build the binary.
+Nice, lets try to build the binary. Clean up and then re-run:
 ```bash
 fakeroot debian/rules binary
 dh binary --buildsystem=golang --with=golang
+   dh_testdir -O--buildsystem=golang
+   dh_update_autotools_config -O--buildsystem=golang
+   dh_autoreconf -O--buildsystem=golang
+   dh_auto_configure -O--buildsystem=golang
+   dh_auto_build -O--buildsystem=golang
+	go install -v -p 1 github.com/berrak/104/cmd/104
+github.com/berrak/pkg103greet
+github.com/bgentry/speakeasy
+github.com/berrak/104/cmd/104
+   dh_auto_test -O--buildsystem=golang
+	go test -v -p 1 github.com/berrak/104/cmd/104
+=== RUN   TestOne
+--- PASS: TestOne (0.00s)
+PASS
+ok  	github.com/berrak/104/cmd/104	0.001s
+   create-stamp debian/debhelper-build-stamp
    dh_testroot -O--buildsystem=golang
    dh_prep -O--buildsystem=golang
    dh_auto_install -O--buildsystem=golang
@@ -113,7 +163,7 @@ dh binary --buildsystem=golang --with=golang
 dpkg-gencontrol: warning: Depends field of package 104: unknown substitution variable ${shlibs:Depends}
    dh_md5sums -O--buildsystem=golang
    dh_builddeb -u-Zxz -O--buildsystem=golang
-dpkg-deb: building package '104' in '../104_0.0~git20180303.53e3bf5-1_amd64.deb'.
+dpkg-deb: building package '104' in '../104_0.0~git20180304.eaf0f5b-1_amd64.deb'.
 ```
 We have our debian package built, albeit with a warning about ${shlibs:Depends} from the control file.
 We will ignore that for now. Next step is to debanize in a chrooted environment. Set it up with:
@@ -140,14 +190,13 @@ tree 104
                 └── github.com
                     └── berrak
                         └── 104
-                            ├── 104.go
-                            ├── 104_test.go
-                            ├── one.go
-                            ├── onetwothree_test.go
-                            ├── three.go
-                            └── two.go
+                            └── cmd
+                                └── 104
+                                    ├── 104.go
+                                    ├── one.go
+                                    └── one_test.go
 
-10 directories, 10 files
+12 directories, 7 files
 ```
 
 We will have to add a directive to include our binary file in the debin directory to take care of that.
@@ -170,9 +219,7 @@ The binaries should be end up in /opt/ZUL/bin after our enterprise name **ZUL**:
 
 TMP  = $(CURDIR)/debian/tmp
 
-GO_SRC := 104.go one.go two.go three.go
-
-export DH_GOPKG := github.com/berrak/104
+GO_SRC := 104.go one.go
 
 %:
         dh $@ --buildsystem=golang --with=golang
@@ -198,7 +245,32 @@ git com -m 'Initial packaging'
 Now we can debanize the 104 application in the chrooted stretch (note: golang-1.7-go (1.7.4-2)) environment:
 ```bash
 gbp buildpackage --git-pbuilder --git-compression=xz
+...
+...
+The following packages have unmet dependencies:
+ pbuilder-satisfydepends-dummy : Depends: golang-github-berrak-pkg103greet-dev which is a virtual package and is not provided by any available package
+
+Unable to resolve dependencies!  Giving up...
+...
+...
+Abort.
+E: pbuilder-satisfydepends failed.
+I: Copying back the cached apt archive contents
+I: unmounting dev/ptmx filesystem
+I: unmounting dev/pts filesystem
+I: unmounting dev/shm filesystem
+I: unmounting proc filesystem
+I: unmounting sys filesystem
+I: Cleaning COW directory
+I: forking: rm -rf /var/cache/pbuilder/build/cow.32744
+gbp:error: 'git-pbuilder' failed: it exited with 1
 ```
+Now this fails, since all repositories known to APT is given in */etc/apt/sources.list* or in *sources.list.d*.
+Before we can continue we need to upload our previous built *golang-github-berrak-pkg103greet-dev* to our own apt repository.
+
+Before we can continue, that has to be taken care of.
+See *setting-up-an-apt-repository.md* in the docs folder. Then come back here and continue.
+
 A number of new files have been created at parent directory:
 ```bash
 104_0.0~git20180303.53e3bf5-1_amd64.build
